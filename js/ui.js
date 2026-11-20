@@ -31,7 +31,7 @@
   const STATUS = { live: 'Live', pending: 'In review', approved: 'Approved', rejected: 'Rejected', paused: 'Paused', completed: 'Finished', paid: 'Paid', active: 'Active', suspended: 'Suspended', featured: 'Featured' };
   const badge = (status) => `<span class="pill p-${esc(status)}">${esc(STATUS[status] || status)}</span>`;
   const initials = (name) => (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('');
-  const avatar = (u, size) => `<span class="avatar${size ? ' ' + size : ''}" style="--who:${esc(u.color || '#f9a3c0')}" aria-hidden="true">${esc(initials(u.name))}</span>`;
+  const avatar = (u, size) => `<span class="avatar${size ? ' ' + size : ''}" style="--who:${esc(u.color || '#93f1f7')}" aria-hidden="true">${esc(initials(u.name))}</span>`;
   const safeUrl = (u) => (/^https:\/\//i.test(u) ? esc(u) : '#');
 
   /* Sample photographs from open collections, matched to a campaign's world (credits in the footer). */
