@@ -1,7 +1,7 @@
 /* Dashboards for clippers, brands and admins. */
 (function () {
   'use strict';
-  const { esc, money, money0, compact, date, ago, PLATFORM, platformChip, badge, avatar, safeUrl, toast, modal, closeModal, barChart, stat, empty } = window.UI;
+  const { esc, money, money0, compact, date, ago, PLATFORM, platformList, badge, avatar, safeUrl, toast, modal, closeModal, barChart, stat, empty, bar } = window.UI;
   const V = window.Views, A = window.Actions, F = window.Forms, state = window.State;
   const D = (window.Dash = { clipper: {}, brand: {}, admin: {} });
 
@@ -11,72 +11,85 @@
     admin: [['overview', 'Overview'], ['campaigns', 'Campaigns'], ['submissions', 'Clips'], ['payouts', 'Payouts'], ['users', 'Users']],
   };
 
-  const head = (title, sub, cta) => `<div class="row between dash-head"><div><h1>${esc(title)}</h1>${sub ? `<p class="muted">${esc(sub)}</p>` : ''}</div>${cta || ''}</div>`;
-  const table = (cols, rows) => `<div class="card table-wrap"><table><thead><tr>${cols.map((c) => `<th${c.startsWith('#') ? ' class="num"' : ''}>${esc(c.replace('#', ''))}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
-  const clipLink = (s) => `<a href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer">Open ↗</a>`;
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many || one + 's');
+  const head = (title, sub, cta) => `<div class="title-row"><div><h1>${esc(title)}</h1>${sub ? `<p>${esc(sub)}</p>` : ''}</div>${cta ? `<div class="title-act">${cta}</div>` : ''}</div>`;
+  const kpis = (cells) => `<div class="kpis" style="--n:${cells.length}">${cells.join('')}</div>`;
+  const panel = (title, body, extra) => `<section class="panel">${title ? `<div class="panel-head"><h2>${esc(title)}</h2>${extra || ''}</div>` : ''}${body}</section>`;
+  const table = (cols, rows) => `<div class="tbl"><table><thead><tr>${cols.map((c) => `<th scope="col"${c.startsWith('#') ? ' class="num"' : ''}>${esc(c.replace('#', ''))}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  const clipLink = (s) => `<a href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer">Open clip</a>`;
+  const plat = (p) => esc(PLATFORM[p] ? PLATFORM[p].name : p);
+  const sum = (pts) => pts.reduce((a, p) => a + p.value, 0);
   const TX = { earning: 'Clip earnings', payout: 'Payout request', payout_refund: 'Payout returned', deposit: 'Funds added', campaign_fund: 'Campaign funded', refund: 'Campaign refund' };
   const txTable = (tx) => tx.length ? table(['Date', 'Type', 'Details', '#Amount'], tx.map((t) =>
-    `<tr><td>${date(t.at)}</td><td>${esc(TX[t.type] || t.type)}</td><td class="muted">${esc(t.campaignTitle || '—')}</td><td class="num ${t.amount >= 0 ? 'accent' : ''}">${t.amount >= 0 ? '+' : '−'}${money(Math.abs(t.amount))}</td></tr>`)) : empty('No activity yet', 'Transactions will show up here.');
+    `<tr><td>${date(t.at)}</td><td>${esc(TX[t.type] || t.type)}</td><td class="soft">${esc(t.campaignTitle || '—')}</td><td class="num${t.amount >= 0 ? ' up' : ''}">${t.amount >= 0 ? '+' : '−'}${money(Math.abs(t.amount))}</td></tr>`)) : empty('No activity yet', 'Transactions will show up here.');
+  const rail = (title, rows, more) => `<section class="rail-block"><h2>${esc(title)}</h2><div class="panel list">${rows || '<p class="soft pad">Nothing here yet.</p>'}${more ? `<a class="btn sm outline block" href="${more[0]}">${esc(more[1])}</a>` : ''}</div></section>`;
 
   /* ============================ CLIPPER ============================ */
   D.clipper.overview = async () => {
     const o = await API.call('clipperOverview');
-    return head('Hey, ' + state.user.name, 'Here’s how your clips are doing.', `<button class="btn primary" data-act="submitClip">+ Submit a clip</button>`) +
-      `<div class="grid g4 stats">${stat('Available balance', money(o.balance), 'Ready to withdraw')}${stat('Lifetime earnings', money(o.lifetime))}${stat('Verified views', compact(o.views))}${stat('Clips', o.clips, o.pending + ' in review')}</div>
-      <div class="card"><h3>Earnings, last 14 days</h3>${barChart(o.chart)}</div>
-      <h3>Recent clips</h3>${o.recent.length ? subsTable(o.recent) : empty('No clips yet', 'Join a campaign and submit your first clip.', '<a class="btn primary" href="#/campaigns">Browse campaigns</a>')}`;
+    const name = state.user.name;
+    const greet = o.balance >= 10 ? `${name}, ${money(o.balance)} is ready to withdraw.` : o.pending ? `${name}, ${plural(o.pending, 'clip')} in review.` : `${name}, pick a campaign and post your first clip.`;
+    const recent = o.recent.slice(0, 5).map((s) => `<a class="li" href="#/dashboard/submissions"><span><b>${esc(s.campaignTitle)}</b><small>${plat(s.platform)}, ${ago(s.createdAt)}</small></span><span class="li-end"><b class="num">${money(s.earned)}</b>${badge(s.status)}</span></a>`).join('');
+    return head(greet, `${plural(o.campaigns, 'campaign')} joined, ${plural(o.approved, 'clip')} approved.`, `<button class="btn primary" data-act="submitClip">Submit a clip</button>`) +
+      `<div class="ov"><div class="ov-main">
+        ${kpis([stat('Available balance', money(o.balance), o.balance >= 10 ? 'Ready to withdraw' : 'Withdraw from $10'), stat('Lifetime earnings', money(o.lifetime), 'All approved clips'), stat('Verified views', compact(o.views), 'On approved clips'), stat('Clips', String(o.clips), o.pending + ' in review')])}
+        ${panel('Earnings, last 14 days', barChart(o.chart), `<span class="panel-note">${money(sum(o.chart))} in 14 days</span>`)}
+      </div>
+      <div class="ov-rail">${rail('Recent clips', recent, ['#/dashboard/submissions', 'View all clips'])}</div></div>`;
   };
 
   function subsTable(rows) {
     return table(['Campaign', 'Platform', 'Clip', '#Views', '#Earned', 'Status'], rows.map((s) =>
-      `<tr><td><b>${esc(s.campaignTitle)}</b><br><small class="muted">${ago(s.createdAt)}</small></td><td>${platformChip(s.platform)}</td><td>${clipLink(s)}</td>
-       <td class="num">${compact(s.views)}</td><td class="num accent">${money(s.earned)}</td><td>${badge(s.status)}${s.note ? `<br><small class="muted">${esc(s.note)}</small>` : ''}</td></tr>`));
+      `<tr><td><b>${esc(s.campaignTitle)}</b><small>${ago(s.createdAt)}</small></td><td>${plat(s.platform)}</td><td>${clipLink(s)}</td>
+       <td class="num">${compact(s.views)}</td><td class="num">${money(s.earned)}</td><td>${badge(s.status)}${s.note ? `<small>${esc(s.note)}</small>` : ''}</td></tr>`));
   }
 
   D.clipper.campaigns = async () => {
     const list = await API.call('myCampaigns');
-    return head('My campaigns', 'Campaigns you have joined.', `<a class="btn ghost" href="#/campaigns">Find more</a>`) +
+    return head('My campaigns', `${plural(list.length, 'campaign')} joined.`, `<a class="btn outline" href="#/campaigns">Find more campaigns</a>`) +
       (list.length ? table(['Campaign', 'Rate', '#My clips', '#My views', '#My earnings', 'Status', ''], list.map((c) =>
-        `<tr><td><a href="#/campaign/${esc(c.id)}"><b>${esc(c.title)}</b></a><br><small class="muted">${esc(c.brandName)}</small></td><td>${money(c.rate)} / 1K</td>
-         <td class="num">${c.myClips}</td><td class="num">${compact(c.myViews)}</td><td class="num accent">${money(c.myEarned)}</td><td>${badge(c.status)}</td>
-         <td>${c.status === 'live' ? `<button class="btn sm primary" data-act="submitClip" data-id="${esc(c.id)}">Submit clip</button>` : ''}</td></tr>`))
+        `<tr><td><a href="#/campaign/${esc(c.id)}"><b>${esc(c.title)}</b></a><small>${esc(c.brandName)}</small></td><td class="nowrap">${money(c.rate)} per 1K</td>
+         <td class="num">${c.myClips}</td><td class="num">${compact(c.myViews)}</td><td class="num">${money(c.myEarned)}</td><td>${badge(c.status)}</td>
+         <td class="act">${c.status === 'live' ? `<button class="btn sm primary" data-act="submitClip" data-id="${esc(c.id)}">Submit clip</button>` : ''}</td></tr>`))
         : empty('You haven’t joined a campaign yet', 'Pick one that fits your niche and start posting.', '<a class="btn primary" href="#/campaigns">Browse campaigns</a>'));
   };
 
   D.clipper.submissions = async () => {
     const list = await API.call('mySubmissions');
-    return head('My clips', 'Every clip you submitted and what it earned.', `<button class="btn primary" data-act="submitClip">+ Submit a clip</button>`) +
+    const pend = list.filter((s) => s.status === 'pending').length;
+    return head('My clips', `${plural(list.length, 'clip')} submitted, ${pend} in review.`, `<button class="btn primary" data-act="submitClip">Submit a clip</button>`) +
       (list.length ? subsTable(list) : empty('No clips yet', 'Submitted clips show up here with their review status.'));
   };
 
   D.clipper.wallet = async () => {
     const w = await API.call('wallet');
     const can = w.balance >= w.minPayout;
-    return head('Wallet', 'Withdraw your earnings and see your history.') +
-      `<div class="grid g3 stats">${stat('Available balance', money(w.balance))}${stat('Lifetime earnings', money(w.lifetime))}${stat('Minimum payout', money(w.minPayout))}</div>
-      <div class="card"><h3>Request a payout</h3>
-        <form data-form="payout" class="form inline">
+    return head('Wallet', 'Withdraw your earnings and see every payout.') +
+      kpis([stat('Available balance', money(w.balance), can ? 'Ready to withdraw' : 'Below the minimum'), stat('Lifetime earnings', money(w.lifetime)), stat('Minimum payout', money(w.minPayout), 'PayPal, USDT or USDC')]) +
+      panel('Request a payout', `<form data-form="payout" class="form inline">
           <label>Amount (USD)<input name="amount" type="number" step="0.01" min="${w.minPayout}" max="${w.balance}" value="${can ? w.balance : ''}" required ${can ? '' : 'disabled'}></label>
           <label>Method<select name="method" ${can ? '' : 'disabled'}>${ClipZCore.PAYOUT_METHODS.map((m) => `<option value="${m}"${w.payout.method === m ? ' selected' : ''}>${m === 'paypal' ? 'PayPal' : m.toUpperCase()}</option>`).join('')}</select></label>
           <label class="grow">PayPal email or wallet address<input name="address" required value="${esc(w.payout.address || '')}" ${can ? '' : 'disabled'}></label>
           <button class="btn primary" ${can ? '' : 'disabled'}>Request payout</button>
-        </form>${can ? '' : `<p class="muted small">You need at least ${money(w.minPayout)} to withdraw.</p>`}</div>
-      <h3>Payouts</h3>${w.payouts.length ? table(['Requested', 'Method', 'Destination', '#Amount', 'Status'], w.payouts.map((p) =>
-        `<tr><td>${date(p.createdAt)}</td><td>${esc(p.method.toUpperCase())}</td><td class="muted">${esc(p.address)}</td><td class="num">${money(p.amount)}</td><td>${badge(p.status)}</td></tr>`)) : empty('No payouts yet', 'Your payout requests will be listed here.')}
-      <h3>Activity</h3>${txTable(w.tx)}`;
+        </form>${can ? '' : `<p class="soft">You need at least ${money(w.minPayout)} to withdraw.</p>`}`) +
+      `<h2 class="sub-h">Payouts</h2>${w.payouts.length ? table(['Requested', 'Method', 'Destination', '#Amount', 'Status'], w.payouts.map((p) =>
+        `<tr><td>${date(p.createdAt)}</td><td>${esc(p.method === 'paypal' ? 'PayPal' : p.method.toUpperCase())}</td><td class="soft">${esc(p.address)}</td><td class="num">${money(p.amount)}</td><td>${badge(p.status)}</td></tr>`)) : empty('No payouts yet', 'Your payout requests will be listed here.')}
+      <h2 class="sub-h">Activity</h2>${txTable(w.tx)}`;
   };
   F.payout = async (d) => { await API.call('requestPayout', d); toast('Payout requested'); await App.refreshUser(); App.render(); };
 
   /* ============================ SETTINGS (shared) ============================ */
   const settings = async () => {
     const u = state.user;
-    return head('Settings', 'Your profile and connected accounts.') + `<div class="card"><form data-form="profile" class="form narrow">
+    return head('Settings', 'Your profile and connected accounts.') + `<div class="settings">
+      <div class="set-label"><h2>Profile</h2><p>${u.role === 'clipper' ? 'Clips must be posted from the handles you list here.' : 'Your brand name shows on every campaign.'}</p></div>
+      ${panel('', `<form data-form="profile" class="form narrow">
       <label>${u.role === 'brand' ? 'Brand name' : 'Display name'}<input name="name" value="${esc(u.name)}" required maxlength="40"></label>
       <label>Email<input value="${esc(u.email)}" disabled></label>
-      ${u.role === 'clipper' ? `<h3>Social accounts</h3><p class="muted small">Clips must be posted from these handles.</p>
-        ${Object.keys(PLATFORM).map((p) => `<label>${PLATFORM[p].name} handle<input name="h_${p}" value="${esc(u.handles[p] || '')}" placeholder="username" maxlength="40"></label>`).join('')}` : ''}
-      <button class="btn primary">Save changes</button></form></div>
-      ${API.mode === 'demo' ? `<div class="card"><h3>Demo data</h3><p class="muted small">This preview stores everything in your browser. Reset it to start over.</p><button class="btn" data-act="resetDemo">Reset demo data</button></div>` : ''}`;
+      ${u.role === 'clipper' ? Object.keys(PLATFORM).map((p) => `<label>${PLATFORM[p].name} handle<input name="h_${p}" value="${esc(u.handles[p] || '')}" placeholder="username" maxlength="40"></label>`).join('') : ''}
+      <div><button class="btn primary">Save changes</button></div></form>`)}
+      ${API.mode === 'demo' ? `<div class="set-label"><h2>Demo data</h2><p>This preview keeps everything in your browser.</p></div>${panel('', `<p class="soft">Reset to bring back the sample campaigns, clips and accounts.</p><button class="btn outline" data-act="resetDemo">Reset demo data</button>`)}` : ''}
+      </div>`;
   };
   D.clipper.settings = D.brand.settings = settings;
   F.profile = async (d) => {
@@ -88,39 +101,44 @@
   /* ============================ BRAND ============================ */
   D.brand.overview = async () => {
     const o = await API.call('brandOverview');
-    return head(state.user.name, 'Campaign performance at a glance.', `<a class="btn primary" href="#/dashboard/new">+ New campaign</a>`) +
-      `<div class="grid g4 stats">${stat('Total spend', money(o.spent), 'of ' + money0(o.budget) + ' funded')}${stat('Verified views', compact(o.views))}${stat('Effective CPM', money(o.cpm), 'cost per 1K views')}${stat('Clips', o.clips, o.pending + ' awaiting review')}</div>
-      <div class="card"><h3>Spend, last 14 days</h3>${barChart(o.chart)}</div>
-      <h3>Your campaigns</h3>${o.campaigns.length ? brandCampTable(o.campaigns) : empty('No campaigns yet', 'Launch your first campaign to start getting clips.', '<a class="btn primary" href="#/dashboard/new">Create campaign</a>')}`;
+    const name = state.user.name;
+    const greet = o.pending ? `${name}, ${plural(o.pending, 'clip is', 'clips are')} waiting for review.` : o.campaigns.length ? `${name}, every clip is reviewed.` : `${name}, launch your first campaign.`;
+    const camps = o.campaigns.map((c) => `<a class="li" href="#/dashboard/campaign/${esc(c.id)}"><span><b>${esc(c.title)}</b><small>${money0(c.spent)} of ${money0(c.budget)} spent</small>${bar(c.progress)}</span><span class="li-end">${c.pendingClips ? `<span class="pill p-pending">${c.pendingClips} to review</span>` : badge(c.status)}</span></a>`).join('');
+    return head(greet, `${plural(o.live, 'live campaign')}, ${money(o.balance)} in unassigned funds.`, `<a class="btn primary" href="#/dashboard/new">New campaign</a>`) +
+      `<div class="ov"><div class="ov-main">
+        ${kpis([stat('Total spend', money(o.spent), 'of ' + money0(o.budget) + ' funded'), stat('Verified views', compact(o.views), 'On approved clips'), stat('Cost per 1K views', money(o.cpm), 'Spend over views'), stat('Clips', String(o.clips), o.pending + ' awaiting review')])}
+        ${panel('Spend, last 14 days', barChart(o.chart), `<span class="panel-note">${money(sum(o.chart))} in 14 days</span>`)}
+      </div>
+      <div class="ov-rail">${rail('Your campaigns', camps, ['#/dashboard/campaigns', 'View all campaigns'])}</div></div>`;
   };
 
   function brandCampTable(list) {
     return table(['Campaign', 'Status', '#Views', '#Clips', 'Budget used', ''], list.map((c) =>
-      `<tr><td><a href="#/dashboard/campaign/${esc(c.id)}"><b>${esc(c.title)}</b></a><br><small class="muted">${money(c.rate)} / 1K · ${c.clippers} clippers</small></td><td>${badge(c.status)}</td>
-       <td class="num">${compact(c.views)}</td><td class="num">${c.clips}${c.pendingClips ? ` <span class="dot" title="${c.pendingClips} to review">${c.pendingClips}</span>` : ''}</td>
-       <td><div class="progress sm"><div style="width:${c.progress}%"></div></div><small class="muted">${money0(c.spent)} / ${money0(c.budget)}</small></td>
-       <td><a class="btn sm" href="#/dashboard/campaign/${esc(c.id)}">Manage</a></td></tr>`));
+      `<tr><td><a href="#/dashboard/campaign/${esc(c.id)}"><b>${esc(c.title)}</b></a><small>${money(c.rate)} per 1K, ${plural(c.clippers, 'clipper')}</small></td><td>${badge(c.status)}</td>
+       <td class="num">${compact(c.views)}</td><td class="num">${c.clips}${c.pendingClips ? `<small>${c.pendingClips} to review</small>` : ''}</td>
+       <td class="budget">${bar(c.progress)}<small>${money0(c.spent)} of ${money0(c.budget)}</small></td>
+       <td class="act"><a class="btn sm outline" href="#/dashboard/campaign/${esc(c.id)}">Manage</a></td></tr>`));
   }
 
   D.brand.campaigns = async () => {
     const list = await API.call('brandCampaigns');
-    return head('Campaigns', 'Everything you have launched.', `<a class="btn primary" href="#/dashboard/new">+ New campaign</a>`) +
+    return head('Campaigns', `${plural(list.length, 'campaign')} launched.`, `<a class="btn primary" href="#/dashboard/new">New campaign</a>`) +
       (list.length ? brandCampTable(list) : empty('No campaigns yet', 'Launch your first campaign to start getting clips.'));
   };
 
   D.brand.new = async () => head('New campaign', 'Available funds: ' + money(state.user.balance) + '. New campaigns go live after a quick review.') +
-    `<div class="card"><form data-form="createCampaign" class="form narrow">
-      <label>Campaign title<input name="title" required maxlength="80" placeholder="e.g. Summer launch highlights"></label>
+    panel('', `<form data-form="createCampaign" class="form narrow">
+      <label>Campaign title<input name="title" required maxlength="80" placeholder="Summer launch highlights"></label>
       <label>Description<textarea name="description" rows="4" required maxlength="1200" placeholder="What should clippers cut, and what makes a great clip?"></textarea></label>
-      <div class="grid g2"><label>Category<select name="category">${ClipZCore.CATEGORIES.map((c) => `<option>${c}</option>`).join('')}</select></label>
+      <div class="form-2"><label>Category<select name="category">${ClipZCore.CATEGORIES.map((c) => `<option>${c}</option>`).join('')}</select></label>
         <label>Budget (USD)<input name="budget" type="number" min="50" step="1" required placeholder="1000"></label></div>
-      <fieldset><legend>Platforms</legend><div class="row gap fw">${Object.keys(PLATFORM).map((p) => `<label class="check"><input type="checkbox" name="platforms" value="${p}"${p === 'tiktok' ? ' checked' : ''}> ${PLATFORM[p].name}</label>`).join('')}</div></fieldset>
-      <div class="grid g3"><label>Rate per 1K views ($)<input name="rate" type="number" min="0.1" max="50" step="0.05" value="1" required></label>
-        <label>Min. views per clip<input name="minViews" type="number" min="0" step="1" value="5000" required></label>
-        <label>Max payout per clip ($)<input name="maxPayout" type="number" min="0" step="1" value="250"><small class="muted">0 = no cap</small></label></div>
+      <fieldset><legend>Platforms</legend><div class="checks">${Object.keys(PLATFORM).map((p) => `<label class="check"><input type="checkbox" name="platforms" value="${p}"${p === 'tiktok' ? ' checked' : ''}> ${PLATFORM[p].name}</label>`).join('')}</div></fieldset>
+      <div class="form-3"><label>Rate per 1K views ($)<input name="rate" type="number" min="0.1" max="50" step="0.05" value="1" required></label>
+        <label>Views a clip needs<input name="minViews" type="number" min="0" step="1" value="5000" required></label>
+        <label>Most per clip ($)<input name="maxPayout" type="number" min="0" step="1" value="250"><small>0 means no cap</small></label></div>
       <label>Rules, one per line<textarea name="requirements" rows="4" placeholder="Clips must be 15–60 seconds&#10;Tag our account in the caption"></textarea></label>
       <label>Source footage link (optional)<input name="assetsUrl" type="url" placeholder="https://drive.google.com/…"></label>
-      <button class="btn primary">Submit campaign for review</button></form></div>`;
+      <div><button class="btn primary">Submit campaign for review</button></div></form>`);
   F.createCampaign = async (d, form) => {
     d.platforms = Array.from(form.querySelectorAll('[name=platforms]:checked')).map((x) => x.value);
     const c = await API.call('createCampaign', d);
@@ -130,94 +148,101 @@
   D.brand.campaign = async (id) => {
     const { campaign: c, submissions } = await API.call('campaignSubmissions', { id });
     const pend = submissions.filter((s) => s.status === 'pending').length;
-    const toggle = c.status === 'live' ? `<button class="btn" data-act="campStatus" data-id="${esc(c.id)}" data-s="paused">Pause</button>`
+    const toggle = c.status === 'live' ? `<button class="btn outline" data-act="campStatus" data-id="${esc(c.id)}" data-s="paused">Pause</button>`
       : c.status === 'paused' ? `<button class="btn primary" data-act="campStatus" data-id="${esc(c.id)}" data-s="live">Resume</button>` : '';
-    return `<a class="back" href="#/dashboard/campaigns">← Campaigns</a>` +
-      head(c.title, c.category + ' · ' + money(c.rate) + ' per 1K views', `<div class="row gap-s">${badge(c.status)}${toggle}${c.status !== 'rejected' ? `<button class="btn" data-act="topUp" data-id="${esc(c.id)}">Add budget</button>` : ''}</div>`) +
-      (c.status === 'pending' ? `<div class="notice">This campaign is waiting for clipZ review. It goes live as soon as it’s approved.</div>` : '') +
-      `<div class="grid g4 stats">${stat('Spent', money(c.spent), money0(c.remaining) + ' left')}${stat('Verified views', compact(c.views))}${stat('Clippers', c.clippers)}${stat('Clips', c.clips, pend + ' awaiting review')}</div>
-      <div class="card"><div class="row between small"><span>Budget used</span><span>${c.progress}%</span></div><div class="progress"><div style="width:${c.progress}%"></div></div></div>
-      <h3>Submitted clips</h3>${submissions.length ? reviewTable(submissions, 'reviewSubmission') : empty('No clips yet', 'Clips appear here as soon as clippers submit them.')}`;
+    return `<a class="back" href="#/dashboard/campaigns">Back to campaigns</a>` +
+      head(c.title, c.category + ', ' + money(c.rate) + ' per 1K views, ' + platformList(c.platforms) + '.', `${badge(c.status)}${toggle}${c.status !== 'rejected' ? `<button class="btn outline" data-act="topUp" data-id="${esc(c.id)}">Add budget</button>` : ''}`) +
+      (c.status === 'pending' ? `<p class="notice">This campaign is waiting for clipZ review. It goes live as soon as it’s approved.</p>` : '') +
+      kpis([stat('Spent', money(c.spent), money0(c.remaining) + ' left of ' + money0(c.budget)), stat('Verified views', compact(c.views)), stat('Clippers', String(c.clippers)), stat('Clips', String(c.clips), pend + ' awaiting review')]) +
+      panel('Budget used', `${bar(c.progress)}<p class="soft">${c.progress}% of ${money0(c.budget)}. Clips stop earning when the budget runs out.</p>`) +
+      `<h2 class="sub-h">Submitted clips</h2>${submissions.length ? reviewTable(submissions, 'reviewSubmission') : empty('No clips yet', 'Clips appear here as soon as clippers submit them.')}`;
   };
 
   function reviewTable(rows, method, showCampaign) {
     return table(['Clipper', showCampaign ? 'Campaign' : 'Platform', 'Clip', '#Views', '#Earned', 'Status', 'Review'], rows.map((s) =>
-      `<tr><td><div class="row gap-s">${avatar({ name: s.clipperName, color: s.clipperColor })}<span><b>${esc(s.clipperName)}</b><br><small class="muted">${ago(s.createdAt)}</small></span></div></td>
-       <td>${showCampaign ? `${esc(s.campaignTitle)}<br>` : ''}${platformChip(s.platform)}</td><td>${clipLink(s)}</td><td class="num">${compact(s.views)}</td><td class="num accent">${money(s.earned)}</td>
-       <td>${badge(s.status)}${s.note ? `<br><small class="muted">${esc(s.note)}</small>` : ''}</td>
-       <td>${s.status === 'pending' ? `<div class="row gap-s"><button class="btn sm primary" data-act="review" data-m="${method}" data-id="${esc(s.id)}" data-a="approve">Approve</button><button class="btn sm danger" data-act="rejectClip" data-m="${method}" data-id="${esc(s.id)}">Reject</button></div>` : '<span class="muted small">Done</span>'}</td></tr>`));
+      `<tr><td><span class="who-cell">${avatar({ name: s.clipperName, color: s.clipperColor })}<span><b>${esc(s.clipperName)}</b><small>${ago(s.createdAt)}</small></span></span></td>
+       <td>${showCampaign ? `${esc(s.campaignTitle)}<small>${plat(s.platform)}</small>` : plat(s.platform)}</td><td>${clipLink(s)}</td><td class="num">${compact(s.views)}</td><td class="num">${money(s.earned)}</td>
+       <td>${badge(s.status)}${s.note ? `<small>${esc(s.note)}</small>` : ''}</td>
+       <td class="act">${s.status === 'pending' ? `<button class="btn sm primary" data-act="review" data-m="${method}" data-id="${esc(s.id)}" data-a="approve">Approve</button><button class="btn sm outline" data-act="rejectClip" data-m="${method}" data-id="${esc(s.id)}">Reject</button>` : '<span class="soft">Reviewed</span>'}</td></tr>`));
   }
 
   A.review = async (el) => { await API.call(el.dataset.m, { id: el.dataset.id, action: el.dataset.a }); toast('Clip approved'); App.render(); };
   A.rejectClip = (el) => modal('Reject clip', `<form data-form="rejectClip" class="form"><input type="hidden" name="id" value="${esc(el.dataset.id)}"><input type="hidden" name="m" value="${esc(el.dataset.m)}">
-    <label>Reason (shown to the clipper)<input name="reason" required maxlength="200" placeholder="e.g. Missing captions"></label><button class="btn danger block">Reject clip</button></form>`);
+    <label>Reason (shown to the clipper)<input name="reason" required maxlength="200" placeholder="Missing captions"></label><button class="btn danger block">Reject clip</button></form>`);
   F.rejectClip = async (d) => { await API.call(d.m, { id: d.id, action: 'reject', reason: d.reason }); closeModal(); toast('Clip rejected'); App.render(); };
   A.campStatus = async (el) => { await API.call('setCampaignStatus', { id: el.dataset.id, status: el.dataset.s }); toast(el.dataset.s === 'live' ? 'Campaign resumed' : 'Campaign paused'); App.render(); };
   A.topUp = (el) => modal('Add budget', `<form data-form="topUp" class="form"><input type="hidden" name="id" value="${esc(el.dataset.id)}">
-    <p class="muted small">Available funds: ${money(state.user.balance)}</p><label>Amount (USD)<input name="amount" type="number" min="10" step="1" required></label><button class="btn primary block">Add to campaign</button></form>`);
+    <p class="soft">Available funds: ${money(state.user.balance)}</p><label>Amount (USD)<input name="amount" type="number" min="10" step="1" required></label><button class="btn primary block">Add to campaign</button></form>`);
   F.topUp = async (d) => { await API.call('fundCampaign', d); await App.refreshUser(); closeModal(); toast('Budget added'); App.render(); };
 
   D.brand.billing = async () => {
     const w = await API.call('wallet');
     return head('Billing', 'Funds you can assign to campaigns.') +
-      `<div class="grid g3 stats">${stat('Available funds', money(w.balance))}</div>
-      <div class="card"><h3>Add funds</h3><form data-form="addFunds" class="form inline"><label>Amount (USD)<input name="amount" type="number" min="10" step="1" value="500" required></label><button class="btn primary">Add funds</button></form>
-        <p class="muted small">Test mode: no card is charged. Connect a payment provider before going live.</p></div>
-      <h3>Activity</h3>${txTable(w.tx)}`;
+      kpis([stat('Available funds', money(w.balance), 'Not yet assigned to a campaign')]) +
+      panel('Add funds', `<form data-form="addFunds" class="form inline"><label>Amount (USD)<input name="amount" type="number" min="10" step="1" value="500" required></label><button class="btn primary">Add funds</button></form>
+        <p class="soft">Test mode: no card is charged. Connect a payment provider before going live.</p>`) +
+      `<h2 class="sub-h">Activity</h2>${txTable(w.tx)}`;
   };
   F.addFunds = async (d) => { await API.call('addFunds', d); await App.refreshUser(); toast('Funds added'); App.render(); };
 
   /* ============================ ADMIN ============================ */
   D.admin.overview = async () => {
     const o = await API.call('adminOverview');
-    return head('Platform overview', 'Everything happening on clipZ.', `<button class="btn" data-act="syncViews">↻ Run view sync</button>`) +
-      `<div class="grid g4 stats">${stat('Users', o.users, o.stats.clippers + ' clippers · ' + o.stats.brands + ' brands')}${stat('Verified views', compact(o.stats.views))}${stat('Paid to clippers', money(o.stats.paid))}${stat('Budget in escrow', money(o.escrow))}</div>
-      <div class="grid g3 stats">
-        <a class="stat link" href="#/dashboard/campaigns"><span>Campaigns to review</span><b>${o.pendingCampaigns}</b></a>
-        <a class="stat link" href="#/dashboard/submissions"><span>Clips in review</span><b>${o.pendingClips}</b></a>
-        <a class="stat link" href="#/dashboard/payouts"><span>Payouts waiting</span><b>${o.pendingPayouts}</b><small>${money(o.pendingPayoutTotal)}</small></a></div>
-      <div class="card"><h3>Earnings credited, last 14 days</h3>${barChart(o.chart)}</div>`;
+    const open = o.pendingCampaigns + o.pendingClips + o.pendingPayouts;
+    const queue = [
+      ['#/dashboard/campaigns', 'Campaigns to review', o.pendingCampaigns, ''],
+      ['#/dashboard/submissions', 'Clips in review', o.pendingClips, ''],
+      ['#/dashboard/payouts', 'Payouts waiting', o.pendingPayouts, money(o.pendingPayoutTotal)],
+    ].map((q) => `<a class="li" href="${q[0]}"><span><b>${q[1]}</b>${q[3] ? `<small>${q[3]} requested</small>` : ''}</span><span class="li-end"><b class="num">${q[2]}</b></span></a>`).join('');
+    return head(open ? `${plural(open, 'item needs', 'items need')} a decision.` : 'Nothing is waiting for a decision.', 'Everything happening on clipZ.', `<button class="btn outline" data-act="syncViews">Run view sync</button>`) +
+      `<div class="ov"><div class="ov-main">
+        ${kpis([stat('Users', String(o.users), o.stats.clippers + ' clippers, ' + o.stats.brands + ' brands'), stat('Verified views', compact(o.stats.views)), stat('Paid to clippers', money(o.stats.paid)), stat('Budget held', money(o.escrow), 'Funded, not yet spent')])}
+        ${panel('Earnings credited, last 14 days', barChart(o.chart), `<span class="panel-note">${money(sum(o.chart))} in 14 days</span>`)}
+      </div>
+      <div class="ov-rail">${rail('Review queues', queue)}</div></div>`;
   };
-  A.syncViews = async () => { const r = await API.call('syncViews'); toast(`Synced ${r.updated} clips · ${money(r.credited)} credited`); App.render(); };
+  A.syncViews = async () => { const r = await API.call('syncViews'); toast(`Synced ${r.updated} clips, ${money(r.credited)} credited`); App.render(); };
 
   D.admin.campaigns = async () => {
     const list = await API.call('adminCampaigns');
-    const btn = (c, s, label, cls) => `<button class="btn sm ${cls || ''}" data-act="adminCamp" data-id="${esc(c.id)}" data-s="${s}">${label}</button>`;
-    return head('Campaigns', 'Approve, feature or stop campaigns.') + table(['Campaign', 'Status', '#Budget', '#Spent', '#Clips', 'Actions'], list.map((c) =>
-      `<tr><td><b>${esc(c.title)}</b><br><small class="muted">${esc(c.brandName)} · ${money(c.rate)} / 1K</small></td><td>${badge(c.status)}${c.featured ? ' <span class="badge b-featured">featured</span>' : ''}</td>
+    const pend = list.filter((c) => c.status === 'pending').length;
+    const btn = (c, s, label, cls) => `<button class="btn sm ${cls || 'outline'}" data-act="adminCamp" data-id="${esc(c.id)}" data-s="${s}">${label}</button>`;
+    return head('Campaigns', `${plural(list.length, 'campaign')}, ${pend} waiting for review.`) + table(['Campaign', 'Status', '#Budget', '#Spent', '#Clips', 'Actions'], list.map((c) =>
+      `<tr><td><b>${esc(c.title)}</b><small>${esc(c.brandName)}, ${money(c.rate)} per 1K</small></td><td>${badge(c.status)}${c.featured ? ' ' + badge('featured') : ''}</td>
        <td class="num">${money0(c.budget)}</td><td class="num">${money0(c.spent)}</td><td class="num">${c.clips}</td>
-       <td><div class="row gap-s fw">${c.status === 'pending' ? btn(c, 'live', 'Approve', 'primary') + btn(c, 'rejected', 'Reject', 'danger') : ''}
-         ${c.status === 'live' ? btn(c, 'paused', 'Pause') : ''}${c.status === 'paused' ? btn(c, 'live', 'Resume') : ''}
-         ${c.status === 'live' ? `<button class="btn sm" data-act="adminFeature" data-id="${esc(c.id)}" data-f="${c.featured ? '' : '1'}">${c.featured ? 'Unfeature' : 'Feature'}</button>` : ''}</div></td></tr>`));
+       <td class="act">${c.status === 'pending' ? btn(c, 'live', 'Approve', 'primary') + btn(c, 'rejected', 'Reject') : ''}${c.status === 'live' ? btn(c, 'paused', 'Pause') : ''}${c.status === 'paused' ? btn(c, 'live', 'Resume') : ''}${c.status === 'live' ? `<button class="btn sm outline" data-act="adminFeature" data-id="${esc(c.id)}" data-f="${c.featured ? '' : '1'}">${c.featured ? 'Unfeature' : 'Feature'}</button>` : ''}</td></tr>`));
   };
   A.adminCamp = async (el) => { await API.call('adminSetCampaign', { id: el.dataset.id, status: el.dataset.s }); toast('Campaign updated'); App.render(); };
   A.adminFeature = async (el) => { await API.call('adminSetCampaign', { id: el.dataset.id, featured: !!el.dataset.f }); toast('Campaign updated'); App.render(); };
 
   D.admin.submissions = async () => {
     const list = await API.call('adminSubmissions', {});
-    return head('Clips', 'Every submitted clip across the platform.') + (list.length ? reviewTable(list, 'adminReview', true) : empty('No clips', 'Nothing submitted yet.'));
+    const pend = list.filter((s) => s.status === 'pending').length;
+    return head('Clips', `${plural(list.length, 'clip')} across the platform, ${pend} in review.`) + (list.length ? reviewTable(list, 'adminReview', true) : empty('No clips', 'Nothing submitted yet.'));
   };
 
   D.admin.payouts = async () => {
     const list = await API.call('adminPayouts');
-    return head('Payouts', 'Send the money, then mark the request as paid.') + (list.length ? table(['Clipper', 'Requested', 'Method', 'Destination', '#Amount', 'Status', ''], list.map((p) =>
-      `<tr><td><b>${esc(p.userName)}</b></td><td>${date(p.createdAt)}</td><td>${esc(p.method.toUpperCase())}</td><td class="muted">${esc(p.address)}</td><td class="num">${money(p.amount)}</td><td>${badge(p.status)}</td>
-       <td>${p.status === 'pending' ? `<div class="row gap-s"><button class="btn sm primary" data-act="payout" data-id="${esc(p.id)}" data-a="paid">Mark paid</button><button class="btn sm danger" data-act="payout" data-id="${esc(p.id)}" data-a="reject">Reject</button></div>` : ''}</td></tr>`)) : empty('No payouts', 'Payout requests will appear here.'));
+    const pend = list.filter((p) => p.status === 'pending');
+    return head('Payouts', pend.length ? `${plural(pend.length, 'request')} waiting, ${money(pend.reduce((a, p) => a + p.amount, 0))} in total. Send the money, then mark it paid.` : 'Send the money, then mark the request as paid.') + (list.length ? table(['Clipper', 'Requested', 'Method', 'Destination', '#Amount', 'Status', ''], list.map((p) =>
+      `<tr><td><b>${esc(p.userName)}</b></td><td>${date(p.createdAt)}</td><td>${esc(p.method === 'paypal' ? 'PayPal' : p.method.toUpperCase())}</td><td class="soft">${esc(p.address)}</td><td class="num">${money(p.amount)}</td><td>${badge(p.status)}</td>
+       <td class="act">${p.status === 'pending' ? `<button class="btn sm primary" data-act="payout" data-id="${esc(p.id)}" data-a="paid">Mark paid</button><button class="btn sm outline" data-act="payout" data-id="${esc(p.id)}" data-a="reject">Reject</button>` : ''}</td></tr>`)) : empty('No payouts', 'Payout requests will appear here.'));
   };
   A.payout = async (el) => { await API.call('processPayout', { id: el.dataset.id, action: el.dataset.a }); toast(el.dataset.a === 'paid' ? 'Marked as paid' : 'Payout rejected and refunded'); App.render(); };
 
   D.admin.users = async () => {
     const list = await API.call('adminUsers');
-    return head('Users', list.length + ' accounts') + table(['User', 'Role', 'Joined', '#Balance', '#Activity', 'Status', ''], list.map((u) =>
-      `<tr><td><div class="row gap-s">${avatar(u)}<span><b>${esc(u.name)}</b><br><small class="muted">${esc(u.email)}</small></span></div></td><td>${esc(u.role)}</td><td>${date(u.createdAt)}</td>
-       <td class="num">${money(u.balance)}</td><td class="num">${u.role === 'brand' ? u.campaigns + ' campaigns' : u.role === 'clipper' ? u.clips + ' clips' : '—'}</td><td>${badge(u.status)}</td>
-       <td>${u.role === 'admin' ? '' : `<button class="btn sm ${u.status === 'active' ? 'danger' : ''}" data-act="userStatus" data-id="${esc(u.id)}" data-s="${u.status === 'active' ? 'suspended' : 'active'}">${u.status === 'active' ? 'Suspend' : 'Reactivate'}</button>`}</td></tr>`));
+    const role = { clipper: 'Clipper', brand: 'Brand', admin: 'Admin' };
+    return head('Users', `${plural(list.length, 'account')}.`) + table(['User', 'Role', 'Joined', '#Balance', '#Activity', 'Status', ''], list.map((u) =>
+      `<tr><td><span class="who-cell">${avatar(u)}<span><b>${esc(u.name)}</b><small>${esc(u.email)}</small></span></span></td><td>${esc(role[u.role] || u.role)}</td><td class="nowrap">${date(u.createdAt)}</td>
+       <td class="num">${money(u.balance)}</td><td class="num">${u.role === 'brand' ? plural(u.campaigns, 'campaign') : u.role === 'clipper' ? plural(u.clips, 'clip') : '—'}</td><td>${badge(u.status)}</td>
+       <td class="act">${u.role === 'admin' ? '' : `<button class="btn sm ${u.status === 'active' ? 'outline' : 'primary'}" data-act="userStatus" data-id="${esc(u.id)}" data-s="${u.status === 'active' ? 'suspended' : 'active'}">${u.status === 'active' ? 'Suspend' : 'Reactivate'}</button>`}</td></tr>`));
   };
   A.userStatus = async (el) => { await API.call('setUserStatus', { id: el.dataset.id, status: el.dataset.s }); toast('User updated'); App.render(); };
 
   V.dashboard = async (section, _q, arg) => {
     const role = state.user.role, pages = D[role];
     const fn = pages[section || 'overview'] || pages.overview;
-    return fn(arg);
+    return `<div class="col">${await fn(arg)}</div>`;
   };
 })();
